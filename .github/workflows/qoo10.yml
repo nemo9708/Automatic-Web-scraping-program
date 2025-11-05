@@ -1,0 +1,32 @@
+name: Qoo10 Daily Scraper
+
+on:
+  schedule:
+    - cron: '3 15 * * *'  # 매일 JST 00:03
+  workflow_dispatch: # 수동 실행도 가능
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install selenium pandas openpyxl pillow webdriver-manager requests
+
+      - name: Run scraper
+        env:
+          QOO10_URL: ${{ secrets.QOO10_URL }}
+          HIGHLIGHT_NAME: ${{ secrets.HIGHLIGHT_NAME }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+          SEND_TO: ${{ secrets.SEND_TO }}
+        run: |
+          python qoo10_scraper.py
