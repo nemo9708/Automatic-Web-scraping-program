@@ -2,7 +2,7 @@ name: Qoo10 Daily Scraper
 
 on:
   schedule:
-    - cron: '20 2 * * *'  # JST/KST 00:03 실행 (UTC+9 기준)
+    - cron: '50 2 * * *'  # JST/KST 00:03 실행 (UTC+9 기준)
   workflow_dispatch:       # 수동 실행도 허용
 
 jobs:
