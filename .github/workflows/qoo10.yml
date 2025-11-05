@@ -1,8 +1,6 @@
 name: Qoo10 Daily Scraper
 
 on:
-  schedule:
-    - cron: '15 4 * * *'  # JST/KST 00:03 실행 (UTC+9 기준)
   workflow_dispatch:       # 수동 실행도 허용
   repository_dispatch:     # 구글 스케줄러 실행 허용
 
