@@ -64,19 +64,20 @@ except:
 # 데이터 수집 (재시도 포함)
 # -----------------------------
 def get_product_elements():
-    try:
-        WebDriverWait(driver, 40).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "ul.megasale_rank_list li"))
-        )
-        return driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list li")
-    except TimeoutException:
-        print("[WARN] 첫 시도 실패 → 새로고침 후 재시도")
-        driver.refresh()
-        time.sleep(10)
-        WebDriverWait(driver, 40).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "ul.megasale_rank_list li"))
-        )
-        return driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list li")
+    for attempt in range(2):  # 최대 2회 재시도
+        try:
+            WebDriverWait(driver, 180).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "ul.megasale_rank_list li"))
+            )
+            print(f"[INFO] 상품 목록 로딩 성공 (시도 {attempt+1})")
+            return driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list li")
+        except TimeoutException:
+            print(f"[WARN] {180}초 대기 후에도 로딩 실패 (시도 {attempt+1}) → 재시도 중...")
+            driver.refresh()
+            time.sleep(10)
+
+    print("[ERROR] 모든 재시도 실패 — 상품 목록을 불러올 수 없습니다.")
+    return []
 
 products = get_product_elements()
 
