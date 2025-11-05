@@ -20,7 +20,16 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image
 import requests
+import logging
 
+# -----------------------------
+# LOG Data Format
+# -----------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'  # 날짜 + 시:분:초
+)
 # -----------------------------
 # 환경변수 불러오기 (GitHub Secrets)
 # -----------------------------
