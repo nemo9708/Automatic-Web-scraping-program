@@ -20,28 +20,32 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image
 import requests
-import logging
+from datetime import datetime
 
-# -----------------------------
-# LOG Data Format
-# -----------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'  # 날짜 + 시:분:초
-)
-# -----------------------------
-# 환경변수 불러오기 (GitHub Secrets)
-# -----------------------------
+# ==============================================================
+# ✅ 1. 모든 print() 로그에 자동 시간 표시
+# ==============================================================
+import builtins
+_original_print = builtins.print
+
+def timestamped_print(*args, **kwargs):
+    now = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+    _original_print(now, *args, **kwargs)
+
+builtins.print = timestamped_print
+
+# ==============================================================
+# ✅ 2. 환경변수 불러오기 (GitHub Secrets)
+# ==============================================================
 QOO10_URL = os.getenv("QOO10_URL")
 HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME", "メガ割")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 SEND_TO = os.getenv("SEND_TO")
 
-# -----------------------------
-# Headless Chrome 설정
-# -----------------------------
+# ==============================================================
+# ✅ 3. Headless Chrome 설정
+# ==============================================================
 chrome_options = Options()
 chrome_options.add_argument("--headless")
 chrome_options.add_argument("--no-sandbox")
@@ -54,9 +58,9 @@ chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-# -----------------------------
-# Qoo10 페이지 접속
-# -----------------------------
+# ==============================================================
+# ✅ 4. Qoo10 페이지 접속
+# ==============================================================
 print(f"[INFO] Qoo10 페이지 접속: {QOO10_URL}")
 driver.get(QOO10_URL)
 time.sleep(10)
@@ -69,9 +73,9 @@ try:
 except:
     print("[WARN] iframe 없음 — 메인 페이지에서 탐색 진행")
 
-# -----------------------------
-# 상품 데이터 수집 함수
-# -----------------------------
+# ==============================================================
+# ✅ 5. 상품 데이터 수집 함수
+# ==============================================================
 def get_product_elements():
     for attempt in range(3):  # 최대 3회 시도
         try:
@@ -89,9 +93,9 @@ def get_product_elements():
 
 products = get_product_elements()
 
-# -----------------------------
-# 상품 데이터 추출
-# -----------------------------
+# ==============================================================
+# ✅ 6. 상품 데이터 추출
+# ==============================================================
 data = []
 for p in products[:100]:
     try:
@@ -107,9 +111,9 @@ for p in products[:100]:
 
 driver.quit()
 
-# -----------------------------
-# 엑셀 파일 생성
-# -----------------------------
+# ==============================================================
+# ✅ 7. 엑셀 파일 생성
+# ==============================================================
 wb = Workbook()
 ws = wb.active
 ws.title = "Qoo10 Top 100"
@@ -118,18 +122,16 @@ ws.append(["순위", "상품명", "가격", "판매총액", "이미지"])
 for row in data:
     ws.append(row[:-1])  # 이미지 제외
 
-# -----------------------------
 # 강조 표시 (HIGHLIGHT_NAME 포함 시)
-# -----------------------------
 for row in ws.iter_rows(min_row=2, max_col=4):
     if HIGHLIGHT_NAME in str(row[1].value):
         for cell in row:
             cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
             cell.font = Font(bold=True, color="000000")
 
-# -----------------------------
-# 이미지 삽입 (메모리 기반 + 안전 대기)
-# -----------------------------
+# ==============================================================
+# ✅ 8. 이미지 삽입 (메모리 기반 + 안전 대기)
+# ==============================================================
 for i, row in enumerate(data, start=2):
     img_url = row[4]
     try:
@@ -146,22 +148,33 @@ for i, row in enumerate(data, start=2):
         print(f"[WARN] 이미지 처리 실패: {e}")
         continue
 
-# -----------------------------
-# 엑셀 저장
-# -----------------------------
+# ==============================================================
+# ✅ 9. 엑셀 저장
+# ==============================================================
 file_name = "Qoo10_Rank.xlsx"
 wb.save(file_name)
 print(f"[INFO] 엑셀 저장 완료: {file_name}")
 
-# -----------------------------
-# 이메일 전송
-# -----------------------------
+# ==============================================================
+# ✅ 10. 이메일 전송
+# ==============================================================
 msg = MIMEMultipart()
 msg["From"] = GMAIL_USER
 msg["To"] = SEND_TO
-msg["Subject"] = f"[Qoo10 자동 리포트] {HIGHLIGHT_NAME} Top 100 결과"
 
-body = MIMEText(f"자동으로 생성된 Qoo10 {HIGHLIGHT_NAME} 순위 엑셀 파일입니다.\n\nURL: {QOO10_URL}", "plain")
+# 오늘 날짜
+today = datetime.now().strftime("%Y-%m-%d")
+
+# 제목 변경 (요청 반영)
+msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
+
+# 본문 변경
+body = MIMEText(
+    f"안녕하세요,\n\n자동으로 생성된 Qoo10 {HIGHLIGHT_NAME} 순위 엑셀 보고서입니다.\n"
+    f"생성일자: {today}\n"
+    f"참조 URL: {QOO10_URL}\n\n왕사랑합니다.",
+    "plain"
+)
 msg.attach(body)
 
 with open(file_name, "rb") as f:
