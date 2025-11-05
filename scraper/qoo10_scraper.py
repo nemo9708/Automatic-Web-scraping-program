@@ -1,106 +1,163 @@
 import os
+import time
 import smtplib
-from datetime import datetime
-from email.mime.multipart import MIMEMultipart
+import pandas as pd
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
-import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image
 import requests
 from io import BytesIO
 
-# ------------------- 환경 변수 -------------------
+# -----------------------------
+# 환경변수 (GitHub Secrets에서 불러옴)
+# -----------------------------
 QOO10_URL = os.getenv("QOO10_URL")
-HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME")
+HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME", "メガ割")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
-SEND_TO = os.getenv("SEND_TO", GMAIL_USER)  # 받는사람 기본값 = 자기 자신
+SEND_TO = os.getenv("SEND_TO")
 
-# ------------------- 셀레니움 설정 -------------------
+# -----------------------------
+# Headless Chrome 옵션 설정
+# -----------------------------
 chrome_options = Options()
-chrome_options.add_argument("--headless=new")
+chrome_options.add_argument("--headless")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("--window-size=1920,1080")
+chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-driver.get(QOO10_URL)
-WebDriverWait(driver, 15).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".deal_lst li")))
 
-# ------------------- 데이터 추출 -------------------
-items = driver.find_elements(By.CSS_SELECTOR, ".deal_lst li")
-data = []
-for idx, item in enumerate(items, start=1):
+# -----------------------------
+# Qoo10 페이지 접속
+# -----------------------------
+print(f"[INFO] Qoo10 페이지 접속: {QOO10_URL}")
+driver.get(QOO10_URL)
+time.sleep(5)
+
+# iframe 내부 전환 시도
+try:
+    iframe = driver.find_element(By.TAG_NAME, "iframe")
+    driver.switch_to.frame(iframe)
+    print("[INFO] iframe 전환 완료")
+except:
+    print("[WARN] iframe 없음 → 메인 페이지에서 탐색 진행")
+
+# -----------------------------
+# 데이터 수집 (재시도 포함)
+# -----------------------------
+def get_product_elements():
     try:
-        title = item.find_element(By.CSS_SELECTOR, ".item_tit").text.strip()
-        price = item.find_element(By.CSS_SELECTOR, ".prc strong").text.strip()
-        total = item.find_element(By.CSS_SELECTOR, ".sum").text.strip()
-        img_url = item.find_element(By.CSS_SELECTOR, "img").get_attribute("src")
-        data.append((idx, title, price, total, img_url))
-    except Exception:
+        WebDriverWait(driver, 40).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "ul.megasale_rank_list li"))
+        )
+        return driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list li")
+    except TimeoutException:
+        print("[WARN] 첫 시도 실패 → 새로고침 후 재시도")
+        driver.refresh()
+        time.sleep(10)
+        WebDriverWait(driver, 40).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "ul.megasale_rank_list li"))
+        )
+        return driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list li")
+
+products = get_product_elements()
+
+# -----------------------------
+# 상품 데이터 추출
+# -----------------------------
+data = []
+for p in products[:100]:
+    try:
+        rank = p.find_element(By.CSS_SELECTOR, ".rank_num").text.strip()
+        name = p.find_element(By.CSS_SELECTOR, ".title").text.strip()
+        price = p.find_element(By.CSS_SELECTOR, ".price").text.strip()
+        total = p.find_element(By.CSS_SELECTOR, ".value").text.strip()
+        img = p.find_element(By.CSS_SELECTOR, ".thumb img").get_attribute("src")
+        data.append([rank, name, price, total, img])
+    except:
         continue
 
 driver.quit()
 
-# ------------------- 엑셀 저장 -------------------
-now = datetime.now().strftime("%Y-%m-%d")
-file_name = f"qoo10_ranking_{now}.xlsx"
-df = pd.DataFrame(data, columns=["순위", "상품명", "가격", "판매총액", "이미지URL"])
-df.to_excel(file_name, index=False)
-
-# ------------------- 강조 표시 -------------------
-wb = load_workbook(file_name)
+# -----------------------------
+# 엑셀로 저장
+# -----------------------------
+wb = Workbook()
 ws = wb.active
-highlight_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-bold_font = Font(bold=True, color="000000")
+ws.title = "Qoo10 Top 100"
+ws.append(["순위", "상품명", "가격", "판매총액", "이미지"])
 
-for row in ws.iter_rows(min_row=2):
-    if HIGHLIGHT_NAME and HIGHLIGHT_NAME in str(row[1].value):
+for row in data:
+    ws.append(row[:-1])
+
+# -----------------------------
+# 강조 표시 (HIGHLIGHT_NAME 포함된 상품)
+# -----------------------------
+for row in ws.iter_rows(min_row=2, max_col=4):
+    if HIGHLIGHT_NAME in str(row[1].value):
         for cell in row:
-            cell.fill = highlight_fill
-            cell.font = bold_font
+            cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+            cell.font = Font(bold=True, color="000000")
 
-# ------------------- 이미지 삽입 -------------------
-for i, (_, _, _, _, img_url) in enumerate(data, start=2):
+# -----------------------------
+# 이미지 삽입
+# -----------------------------
+for i, row in enumerate(data, start=2):
+    img_url = row[4]
     try:
-        img_data = requests.get(img_url).content
-        img = Image.open(BytesIO(img_data))
-        img.thumbnail((80, 80))
+        img_data = requests.get(img_url, timeout=10).content
+        image = Image.open(BytesIO(img_data))
+        image.thumbnail((80, 80))
         temp_path = f"temp_{i}.png"
-        img.save(temp_path)
-        excel_img = XLImage(temp_path)
-        ws.add_image(excel_img, f"F{i}")
+        image.save(temp_path)
+        img = XLImage(temp_path)
+        ws.add_image(img, f"E{i}")
         os.remove(temp_path)
     except:
         continue
 
+# -----------------------------
+# 엑셀 파일 저장
+# -----------------------------
+file_name = "Qoo10_Rank.xlsx"
 wb.save(file_name)
+print(f"[INFO] 엑셀 저장 완료 → {file_name}")
 
-# ------------------- 이메일 발송 -------------------
+# -----------------------------
+# 이메일 전송
+# -----------------------------
 msg = MIMEMultipart()
 msg["From"] = GMAIL_USER
 msg["To"] = SEND_TO
-msg["Subject"] = f"Qoo10 랭킹 자동 보고서 - {now}"
-body = f"{now}자 Qoo10 랭킹 엑셀 파일을 첨부합니다."
-msg.attach(MIMEText(body, "plain"))
+msg["Subject"] = f"[Qoo10 자동 리포트] {HIGHLIGHT_NAME} Top 100 결과"
+
+body = MIMEText(f"자동으로 생성된 Qoo10 {HIGHLIGHT_NAME} 순위 엑셀 파일입니다.\n\nURL: {QOO10_URL}", "plain")
+msg.attach(body)
 
 with open(file_name, "rb") as f:
     part = MIMEBase("application", "octet-stream")
     part.set_payload(f.read())
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f"attachment; filename={file_name}")
-    msg.attach(part)
+encoders.encode_base64(part)
+part.add_header("Content-Disposition", f"attachment; filename={file_name}")
+msg.attach(part)
 
 with smtplib.SMTP("smtp.gmail.com", 587) as server:
     server.starttls()
