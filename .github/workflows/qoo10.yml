@@ -29,4 +29,4 @@ jobs:
           GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
           SEND_TO: ${{ secrets.SEND_TO }}
         run: |
-          python qoo10_scraper.py
+          python scraper/qoo10_scraper.py
