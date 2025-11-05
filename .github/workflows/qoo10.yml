@@ -22,6 +22,7 @@ jobs:
           pip install selenium pandas openpyxl pillow webdriver-manager requests
 
       - name: Run scraper
+        working-directory: ./scraper
         env:
           QOO10_URL: ${{ secrets.QOO10_URL }}
           HIGHLIGHT_NAME: ${{ secrets.HIGHLIGHT_NAME }}
@@ -29,4 +30,4 @@ jobs:
           GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
           SEND_TO: ${{ secrets.SEND_TO }}
         run: |
-          python scraper/qoo10_scraper.py
+          python qoo10_scraper.py
