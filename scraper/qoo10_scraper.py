@@ -10,15 +10,15 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image
 import requests
-from datetime import datetime
-
+from datetime import datetime, timedelta
 
 # ==============================================================
 # 🕒 Timestamped Print
@@ -27,7 +27,7 @@ import builtins
 _original_print = builtins.print
 
 def timestamped_print(*args, **kwargs):
-    now = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+    now = (datetime.utcnow() + timedelta(hours=9)).strftime("[%Y-%m-%d %H:%M:%S]")  # JST
     _original_print(now, *args, **kwargs)
 
 builtins.print = timestamped_print
@@ -37,7 +37,7 @@ builtins.print = timestamped_print
 # 🔐 GitHub Secrets
 # ==============================================================
 QOO10_URL = os.getenv("QOO10_URL")
-HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME", "メガワリ")
+HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME", "メガ割")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 SEND_TO = os.getenv("SEND_TO")
@@ -54,7 +54,8 @@ chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920,1080")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 chrome_options.add_argument(
-    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
+    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
 )
 
 driver = webdriver.Chrome(
@@ -64,60 +65,65 @@ driver = webdriver.Chrome(
 
 
 # ==============================================================
-# 🔍 페이지 구조 자동 감지
+# ⏳ 메가割 랭킹 리스트 로딩 대기
 # ==============================================================
-def detect_page_mode(driver):
-    html = driver.page_source
-
-    # 👉 너가 제공한 실제 HTML 구조 기준:
-    # <ul class="megasale_rank_list"> ... </ul>
-    if 'megasale_rank_list' in html:
-        print("[INFO] 최신 메가와리 리스트 페이지 감지됨")
-        return "megawari_list"
-
-    print("[WARN] 페이지 구조 자동 감지 실패")
-    return "unknown"
+def wait_megasale_list(driver, timeout=30):
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "ul.megasale_rank_list > li")
+            )
+        )
+        print("[INFO] 메가割 랭킹 리스트 로딩 완료")
+        return True
+    except:
+        print("[WARN] 메가割 리스트 감지 실패")
+        return False
 
 
 # ==============================================================
-# 🧩 메가와리 리스트 파서 (너가 제공한 HTML 기반)
+# 🧩 메가割 리스트 파서
 # ==============================================================
-def parse_megawari_list(driver):
-    results = []
-
-    items = driver.find_elements(
-        By.CSS_SELECTOR,
-        "ul.megasale_rank_list > li"
-    )
-
+def parse_megawari(driver):
+    data = []
+    items = driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list > li")
     print(f"[INFO] 감지된 상품 수: {len(items)}")
 
     for item in items[:100]:
 
+        # 순위
         try:
-            rank = item.find_element(By.CSS_SELECTOR, ".rank_num").text.strip()
+            rank = item.find_element(By.CSS_SELECTOR, ":scope .rank_num").text.strip()
         except:
             rank = ""
 
+        # 상품명
         try:
-            name = item.find_element(By.CSS_SELECTOR, ".title span").text.strip()
+            name = item.find_element(By.CSS_SELECTOR, ":scope .title span").text.strip()
         except:
             name = ""
 
+        # 가격
         try:
-            price = item.find_element(By.CSS_SELECTOR, ".price").text.strip()
+            price = item.find_element(By.CSS_SELECTOR, ":scope .price").text.strip()
         except:
             price = ""
 
+        # 이미지 (로고 문제 방지)
         try:
-            img = item.find_element(By.CSS_SELECTOR, ".thumb img").get_attribute("src")
+            img_el = item.find_element(By.CSS_SELECTOR, ":scope .thumb img")
+            img_url = (
+                img_el.get_attribute("data-src")
+                or img_el.get_attribute("data-original")
+                or img_el.get_attribute("data-lazy")
+                or img_el.get_attribute("src")
+            )
         except:
-            img = ""
+            img_url = ""
 
-        # 메가와리 리스트 구조에는 판매총액 없음 → 빈칸
-        results.append([rank, name, price, "", img])
+        data.append([rank, name, price, "", img_url])
 
-    return results
+    return data
 
 
 # ==============================================================
@@ -125,21 +131,9 @@ def parse_megawari_list(driver):
 # ==============================================================
 print(f"[INFO] Qoo10 접속: {QOO10_URL}")
 driver.get(QOO10_URL)
-time.sleep(5)
 
-
-# ==============================================================
-# 🎯 구조 감지 후 파싱 실행
-# ==============================================================
-mode = detect_page_mode(driver)
-
-if mode == "megawari_list":
-    data = parse_megawari_list(driver)
-else:
-    print("[ERROR] 페이지 구조 지원 불가 → 종료")
-    driver.quit()
-    raise SystemExit
-
+wait_megasale_list(driver)
+data = parse_megawari(driver)
 driver.quit()
 
 
@@ -156,21 +150,19 @@ for row in data:
     ws.append(row[:-1])
 
 
-# 🎯 강조 (상품명에 HIGHLIGHT_NAME 포함 시)
+# 하이라이트
 for row in ws.iter_rows(min_row=2, max_col=4):
     if HIGHLIGHT_NAME in str(row[1].value):
         for cell in row:
             cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-            cell.font = Font(bold=True, color="000000")
+            cell.font = Font(bold=True)
 
 
 # ==============================================================
-# 🖼 이미지 삽입
+# 🖼 이미지 삽입 (투명 PNG 완전 해결판)
 # ==============================================================
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/118.0.5993.70 Safari/537.36"
 }
 
 for i, row in enumerate(data, start=2):
@@ -179,19 +171,28 @@ for i, row in enumerate(data, start=2):
     if not img_url:
         continue
 
-    # 1) URL이 // 로 시작하면 https: 붙여주기
     if img_url.startswith("//"):
         img_url = "https:" + img_url
 
     try:
-        # 2) 헤더를 붙여서 403 방지
         resp = requests.get(img_url, headers=headers, timeout=10)
         resp.raise_for_status()
         img_bytes = resp.content
 
-        # 3) WebP 또는 기타 포맷을 PNG로 통일
         image = Image.open(BytesIO(img_bytes))
-        image = image.convert("RGB")   # WebP → RGB 변환
+
+        # 투명 PNG → RGB 변환 (엑셀 검은 배경 버그 해결)
+        if image.mode in ("RGBA", "P"):
+            bg = Image.new("RGB", image.size, (255, 255, 255))
+            try:
+                bg.paste(image, mask=image.split()[3])
+            except:
+                bg.paste(image)
+            image = bg
+        else:
+            image = image.convert("RGB")
+
+        # 크기 보정
         image.thumbnail((80, 80))
 
         bio = BytesIO()
@@ -200,11 +201,15 @@ for i, row in enumerate(data, start=2):
 
         img = XLImage(bio)
         ws.add_image(img, f"E{i}")
-        time.sleep(0.2)
+        time.sleep(0.15)
 
     except Exception as e:
         print(f"[WARN] 이미지 실패: {img_url} → {e}")
 
+
+# ==============================================================
+# 💾 저장
+# ==============================================================
 file_name = "Qoo10_Rank.xlsx"
 wb.save(file_name)
 print(f"[INFO] 엑셀 저장 완료: {file_name}")
@@ -217,13 +222,14 @@ msg = MIMEMultipart()
 msg["From"] = GMAIL_USER
 msg["To"] = SEND_TO
 
-today = datetime.now().strftime("%Y-%m-%d")
+today = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
+
 msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
 
 body = MIMEText(
     f"안녕하세요,\n\n자동 생성된 Qoo10 {HIGHLIGHT_NAME} 랭킹 보고서입니다.\n"
     f"생성일자: {today}\n"
-    f"URL: {QOO10_URL}\n\n좋은 하루 보내세요!",
+    f"URL: {QOO10_URL}\n\n좋은 하루 되세요!",
     "plain"
 )
 msg.attach(body)
