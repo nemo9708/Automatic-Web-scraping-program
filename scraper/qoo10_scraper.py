@@ -22,8 +22,9 @@ from PIL import Image
 import requests
 from datetime import datetime
 
+
 # ==============================================================
-# ✅ 1. 모든 print() 로그에 자동 시간 표시
+# ✅ print() 로그에 자동 시간 붙이기
 # ==============================================================
 import builtins
 _original_print = builtins.print
@@ -34,17 +35,19 @@ def timestamped_print(*args, **kwargs):
 
 builtins.print = timestamped_print
 
+
 # ==============================================================
-# ✅ 2. 환경변수 불러오기 (GitHub Secrets)
+# ✅ GitHub Secrets 로딩
 # ==============================================================
 QOO10_URL = os.getenv("QOO10_URL")
-HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME", "メガ割")
+HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME", "メガワリ")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 SEND_TO = os.getenv("SEND_TO")
 
+
 # ==============================================================
-# ✅ 3. Headless Chrome 설정
+# ✅ Headless Chrome 설정
 # ==============================================================
 chrome_options = Options()
 chrome_options.add_argument("--headless")
@@ -53,126 +56,212 @@ chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920,1080")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
+chrome_options.add_argument(
+    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36"
+)
 
 driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
-# ==============================================================
-# ✅ 4. Qoo10 페이지 접속
-# ==============================================================
-print(f"[INFO] Qoo10 페이지 접속: {QOO10_URL}")
-driver.get(QOO10_URL)
-time.sleep(10)
 
-# iframe 전환
+# ==============================================================
+# ✅ Qoo10 접속 + iframe 처리
+# ==============================================================
+print(f"[INFO] Qoo10 접속: {QOO10_URL}")
+driver.get(QOO10_URL)
+time.sleep(8)
+
 try:
     iframe = driver.find_element(By.TAG_NAME, "iframe")
     driver.switch_to.frame(iframe)
     print("[INFO] iframe 전환 완료")
 except:
-    print("[WARN] iframe 없음 — 메인 페이지에서 탐색 진행")
+    print("[INFO] iframe 없음 → 메인 페이지에서 진행")
+
 
 # ==============================================================
-# ✅ 5. 상품 데이터 수집 함수
+# 🧩 페이지 구조 자동 감지
 # ==============================================================
-def get_product_elements():
-    for attempt in range(3):  # 최대 3회 시도
+def detect_page_mode(driver):
+    html = driver.page_source
+
+    # 메가와리 누적금액순 탭 특징
+    if "best-accum-price" in html or "accu-price" in html:
+        print("[INFO] 메가와리 누적金額順 페이지 감지됨")
+        return "megawari_amount"
+
+    # 구버전 메가와리
+    if "megasale_rank_list" in html:
+        print("[INFO] 구버전 메가와리 페이지 감지됨")
+        return "legacy"
+
+    print("[WARN] 페이지 구조를 자동 감지하지 못함")
+    return "unknown"
+
+
+# ==============================================================
+# 🧩 메가와리 누적금액순 전용 파서
+# ==============================================================
+def parse_megawari_amount(driver):
+    results = []
+
+    # 메가와리 이벤트 구조 (버전별 대응)
+    items = driver.find_elements(
+        By.CSS_SELECTOR,
+        "div.best-item, li.best-list-item, div.product_item"
+    )
+
+    print(f"[INFO] 감지된 아이템 수: {len(items)}")
+
+    for item in items[:100]:
+        # 순위
         try:
-            WebDriverWait(driver, 180).until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "ul.megasale_rank_list li"))
-            )
-            print(f"[INFO] 상품 목록 로딩 성공 (시도 {attempt + 1})")
-            return driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list li")
-        except TimeoutException:
-            print(f"[WARN] {180}초 대기 후 실패 (시도 {attempt + 1}) → 새로고침")
-            driver.refresh()
-            time.sleep(15)
-    print("[ERROR] 상품 목록 로딩 실패")
-    return []
+            rank = item.find_element(By.CSS_SELECTOR, ".rank-num, .best-rank").text.strip()
+        except:
+            rank = ""
 
-products = get_product_elements()
+        # 상품명
+        try:
+            name = item.find_element(
+                By.CSS_SELECTOR,
+                ".item-title, .best-title, .text-elps"
+            ).text.strip()
+        except:
+            name = ""
+
+        # 가격
+        try:
+            price = item.find_element(
+                By.CSS_SELECTOR,
+                ".price__value, .price--discount"
+            ).text.strip()
+        except:
+            price = ""
+
+        # 판매총액
+        try:
+            amount = item.find_element(
+                By.CSS_SELECTOR,
+                ".best-accum-price, .accu-price"
+            ).text.strip()
+        except:
+            amount = ""
+
+        # 이미지
+        try:
+            img_el = item.find_element(By.CSS_SELECTOR, "img")
+            image = img_el.get_attribute("data-src") or img_el.get_attribute("src")
+        except:
+            image = ""
+
+        results.append([rank, name, price, amount, image])
+
+    return results
+
 
 # ==============================================================
-# ✅ 6. 상품 데이터 추출
+# 🧩 구버전 메가와리/베스트셀러 파서 (호환 유지)
 # ==============================================================
-data = []
-for p in products[:100]:
-    try:
-        rank = p.find_element(By.CSS_SELECTOR, ".rank_num").text.strip()
-        name = p.find_element(By.CSS_SELECTOR, ".title").text.strip()
-        price = p.find_element(By.CSS_SELECTOR, ".price").text.strip()
-        total = p.find_element(By.CSS_SELECTOR, ".value").text.strip()
-        img = p.find_element(By.CSS_SELECTOR, ".thumb img").get_attribute("src")
-        data.append([rank, name, price, total, img])
-    except Exception as e:
-        print(f"[WARN] 상품 정보 파싱 실패: {e}")
-        continue
+def parse_legacy(driver):
+    data = []
+    items = driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list li")
+
+    print(f"[INFO] 구버전 아이템 수: {len(items)}")
+
+    for p in items[:100]:
+        try:
+            rank = p.find_element(By.CSS_SELECTOR, ".rank_num").text.strip()
+            name = p.find_element(By.CSS_SELECTOR, ".title").text.strip()
+            price = p.find_element(By.CSS_SELECTOR, ".price").text.strip()
+            total = p.find_element(By.CSS_SELECTOR, ".value").text.strip()
+            img = p.find_element(By.CSS_SELECTOR, ".thumb img").get_attribute("src")
+            data.append([rank, name, price, total, img])
+        except:
+            continue
+
+    return data
+
+
+# ==============================================================
+# 🎯 자동 구조 감지 → 해당 파서 실행
+# ==============================================================
+mode = detect_page_mode(driver)
+
+if mode == "megawari_amount":
+    data = parse_megawari_amount(driver)
+elif mode == "legacy":
+    data = parse_legacy(driver)
+else:
+    print("[ERROR] 페이지 구조 지원 불가 → 종료")
+    driver.quit()
+    raise SystemExit
 
 driver.quit()
 
+
 # ==============================================================
-# ✅ 7. 엑셀 파일 생성
+# 📘 엑셀 생성
 # ==============================================================
 wb = Workbook()
 ws = wb.active
-ws.title = "Qoo10 Top 100"
+ws.title = "Qoo10 Ranking"
+
 ws.append(["순위", "상품명", "가격", "판매총액", "이미지"])
 
 for row in data:
     ws.append(row[:-1])  # 이미지 제외
 
-# 강조 표시 (HIGHLIGHT_NAME 포함 시)
+
+# 🎯 강조 (상품명에 HIGHLIGHT_NAME 포함 시)
 for row in ws.iter_rows(min_row=2, max_col=4):
     if HIGHLIGHT_NAME in str(row[1].value):
         for cell in row:
             cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
             cell.font = Font(bold=True, color="000000")
 
+
 # ==============================================================
-# ✅ 8. 이미지 삽입 (메모리 기반 + 안전 대기)
+# 🖼 이미지 삽입
 # ==============================================================
 for i, row in enumerate(data, start=2):
     img_url = row[4]
     try:
-        img_data = requests.get(img_url, timeout=15).content
+        img_data = requests.get(img_url, timeout=10).content
         image = Image.open(BytesIO(img_data))
         image.thumbnail((80, 80))
         bio = BytesIO()
         image.save(bio, format="PNG")
         bio.seek(0)
+
         img = XLImage(bio)
         ws.add_image(img, f"E{i}")
-        time.sleep(0.2)  # GitHub Actions용 안전 대기
+        time.sleep(0.1)
     except Exception as e:
-        print(f"[WARN] 이미지 처리 실패: {e}")
-        continue
+        print(f"[WARN] 이미지 실패: {e}")
+
 
 # ==============================================================
-# ✅ 9. 엑셀 저장
+# 💾 저장
 # ==============================================================
 file_name = "Qoo10_Rank.xlsx"
 wb.save(file_name)
 print(f"[INFO] 엑셀 저장 완료: {file_name}")
 
+
 # ==============================================================
-# ✅ 10. 이메일 전송
+# 📧 이메일 전송
 # ==============================================================
 msg = MIMEMultipart()
 msg["From"] = GMAIL_USER
 msg["To"] = SEND_TO
 
-# 오늘 날짜
 today = datetime.now().strftime("%Y-%m-%d")
-
-# 제목 변경 (요청 반영)
 msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
 
-# 본문 변경
 body = MIMEText(
-    f"안녕하세요,\n\n자동으로 생성된 Qoo10 {HIGHLIGHT_NAME} 순위 엑셀 보고서입니다.\n"
+    f"안녕하세요,\n\n자동 생성된 Qoo10 {HIGHLIGHT_NAME} 누적판매금액순 보고서입니다.\n"
     f"생성일자: {today}\n"
-    f"참조 URL: {QOO10_URL}\n\n왕사랑합니다.",
+    f"참조 URL: {QOO10_URL}\n\n사랑해용.",
     "plain"
 )
 msg.attach(body)
