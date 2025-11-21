@@ -20,14 +20,15 @@ from PIL import Image
 import requests
 from datetime import datetime, timedelta
 
+
 # ==============================================================
-# 🕒 Timestamped Print
+# 🕒 Timestamped Print (JST)
 # ==============================================================
 import builtins
 _original_print = builtins.print
 
 def timestamped_print(*args, **kwargs):
-    now = (datetime.utcnow() + timedelta(hours=9)).strftime("[%Y-%m-%d %H:%M:%S]")  # JST
+    now = (datetime.utcnow() + timedelta(hours=9)).strftime("[%Y-%m-%d %H:%M:%S]")
     _original_print(now, *args, **kwargs)
 
 builtins.print = timestamped_print
@@ -48,14 +49,14 @@ SEND_TO = os.getenv("SEND_TO")
 # ==============================================================
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
+chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
-chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920,1080")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 chrome_options.add_argument(
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 driver = webdriver.Chrome(
@@ -65,9 +66,9 @@ driver = webdriver.Chrome(
 
 
 # ==============================================================
-# ⏳ 메가割 랭킹 리스트 로딩 대기
+# ⏳ 메가割 리스트 로딩 대기
 # ==============================================================
-def wait_megasale_list(driver, timeout=30):
+def wait_list(driver, timeout=30):
     try:
         WebDriverWait(driver, timeout).until(
             EC.presence_of_element_located(
@@ -82,12 +83,12 @@ def wait_megasale_list(driver, timeout=30):
 
 
 # ==============================================================
-# 🧩 메가割 리스트 파서
+# 🧩 메가割 파서 (이미지 개선 포함)
 # ==============================================================
 def parse_megawari(driver):
-    data = []
+    results = []
     items = driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list > li")
-    print(f"[INFO] 감지된 상품 수: {len(items)}")
+    print(f"[INFO] 감지된 아이템 수: {len(items)}")
 
     for item in items[:100]:
 
@@ -103,27 +104,32 @@ def parse_megawari(driver):
         except:
             name = ""
 
-        # 가격
+        # 총판매액(= 기존 price 값)
         try:
-            price = item.find_element(By.CSS_SELECTOR, ":scope .price").text.strip()
+            total = item.find_element(By.CSS_SELECTOR, ":scope .price").text.strip()
         except:
-            price = ""
+            total = ""
 
-        # 이미지 (로고 문제 방지)
+        # 이미지 (lazy-load 대응)
         try:
-            img_el = item.find_element(By.CSS_SELECTOR, ":scope .thumb img")
+            img_el = item.find_element(
+                By.CSS_SELECTOR,
+                ":scope .thumb_area img, :scope .thumb img"
+            )
+
             img_url = (
                 img_el.get_attribute("data-src")
                 or img_el.get_attribute("data-original")
                 or img_el.get_attribute("data-lazy")
                 or img_el.get_attribute("src")
             )
+
         except:
             img_url = ""
 
-        data.append([rank, name, price, "", img_url])
+        results.append([rank, name, total, img_url])
 
-    return data
+    return results
 
 
 # ==============================================================
@@ -132,26 +138,26 @@ def parse_megawari(driver):
 print(f"[INFO] Qoo10 접속: {QOO10_URL}")
 driver.get(QOO10_URL)
 
-wait_megasale_list(driver)
+wait_list(driver)
 data = parse_megawari(driver)
 driver.quit()
 
 
 # ==============================================================
-# 📘 엑셀 생성
+# 📘 엑셀 생성 (새 구조)
 # ==============================================================
 wb = Workbook()
 ws = wb.active
 ws.title = "Qoo10 Ranking"
 
-ws.append(["순위", "상품명", "가격", "판매총액", "이미지"])
+ws.append(["순위", "상품명", "총판매액", "이미지"])
 
 for row in data:
     ws.append(row[:-1])
 
 
-# 하이라이트
-for row in ws.iter_rows(min_row=2, max_col=4):
+# 하이라이트 적용
+for row in ws.iter_rows(min_row=2, max_col=3):
     if HIGHLIGHT_NAME in str(row[1].value):
         for cell in row:
             cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -159,15 +165,14 @@ for row in ws.iter_rows(min_row=2, max_col=4):
 
 
 # ==============================================================
-# 🖼 이미지 삽입 (투명 PNG 완전 해결판)
+# 🖼 이미지 삽입 — 투명 PNG & WebP 완전 해결판
 # ==============================================================
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
 for i, row in enumerate(data, start=2):
-    img_url = row[4]
-
+    img_url = row[3]
     if not img_url:
         continue
 
@@ -181,7 +186,7 @@ for i, row in enumerate(data, start=2):
 
         image = Image.open(BytesIO(img_bytes))
 
-        # 투명 PNG → RGB 변환 (엑셀 검은 배경 버그 해결)
+        # 투명 PNG → RGB 변환
         if image.mode in ("RGBA", "P"):
             bg = Image.new("RGB", image.size, (255, 255, 255))
             try:
@@ -192,7 +197,6 @@ for i, row in enumerate(data, start=2):
         else:
             image = image.convert("RGB")
 
-        # 크기 보정
         image.thumbnail((80, 80))
 
         bio = BytesIO()
@@ -200,7 +204,8 @@ for i, row in enumerate(data, start=2):
         bio.seek(0)
 
         img = XLImage(bio)
-        ws.add_image(img, f"E{i}")
+        ws.add_image(img, f"D{i}")
+
         time.sleep(0.15)
 
     except Exception as e:
@@ -223,7 +228,6 @@ msg["From"] = GMAIL_USER
 msg["To"] = SEND_TO
 
 today = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
-
 msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
 
 body = MIMEText(
