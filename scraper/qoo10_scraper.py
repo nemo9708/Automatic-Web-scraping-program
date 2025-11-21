@@ -167,21 +167,43 @@ for row in ws.iter_rows(min_row=2, max_col=4):
 # ==============================================================
 # 🖼 이미지 삽입
 # ==============================================================
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/118.0.5993.70 Safari/537.36"
+}
+
 for i, row in enumerate(data, start=2):
     img_url = row[4]
+
+    if not img_url:
+        continue
+
+    # 1) URL이 // 로 시작하면 https: 붙여주기
+    if img_url.startswith("//"):
+        img_url = "https:" + img_url
+
     try:
-        img_data = requests.get(img_url, timeout=10).content
-        im = Image.open(BytesIO(img_data))
-        im.thumbnail((80, 80))
+        # 2) 헤더를 붙여서 403 방지
+        resp = requests.get(img_url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        img_bytes = resp.content
+
+        # 3) WebP 또는 기타 포맷을 PNG로 통일
+        image = Image.open(BytesIO(img_bytes))
+        image = image.convert("RGB")   # WebP → RGB 변환
+        image.thumbnail((80, 80))
+
         bio = BytesIO()
-        im.save(bio, format="PNG")
+        image.save(bio, format="PNG")
         bio.seek(0)
+
         img = XLImage(bio)
         ws.add_image(img, f"E{i}")
         time.sleep(0.2)
-    except Exception as e:
-        print(f"[WARN] 이미지 실패: {e}")
 
+    except Exception as e:
+        print(f"[WARN] 이미지 실패: {img_url} → {e}")
 
 file_name = "Qoo10_Rank.xlsx"
 wb.save(file_name)
