@@ -233,7 +233,7 @@ msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
 body = MIMEText(
     f"안녕하세요,\n\n자동 생성된 Qoo10 {HIGHLIGHT_NAME} 랭킹 보고서입니다.\n"
     f"생성일자: {today}\n"
-    f"URL: {QOO10_URL}\n\n좋은 하루 되세요!",
+    f"URL: {QOO10_URL}\n\n짱 많이 사랑해오!",
     "plain"
 )
 msg.attach(body)
