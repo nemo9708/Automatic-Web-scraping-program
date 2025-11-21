@@ -67,16 +67,25 @@ driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), opti
 # ==============================================================
 # ✅ Qoo10 접속 + iframe 처리
 # ==============================================================
-print(f"[INFO] Qoo10 접속: {QOO10_URL}")
-driver.get(QOO10_URL)
-time.sleep(8)
+def switch_to_last_iframe(driver):
+    iframes = driver.find_elements(By.TAG_NAME, "iframe")
+    print(f"[INFO] 감지된 iframe 수: {len(iframes)}")
 
-try:
-    iframe = driver.find_element(By.TAG_NAME, "iframe")
-    driver.switch_to.frame(iframe)
-    print("[INFO] iframe 전환 완료")
-except:
-    print("[INFO] iframe 없음 → 메인 페이지에서 진행")
+    for i, f in enumerate(iframes):
+        try:
+            driver.switch_to.frame(f)
+            print(f"[INFO] iframe {i+1} 전환 성공")
+
+            # 내부에 iframe이 또 있을 경우 반복
+            inner = f.find_elements(By.TAG_NAME, "iframe")
+            if inner:
+                driver.switch_to.frame(inner[0])
+                print("[INFO] 내부 iframe 추가 전환 완료")
+            return
+        except:
+            continue
+
+    print("[WARN] iframe 전환 실패 — 메인 페이지에서 처리")
 
 
 # ==============================================================
