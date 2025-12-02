@@ -127,14 +127,25 @@ def parse_megawari(driver):
     return results
 
 
-# ============================================================== 
+# ==============================================================
 # 🚀 Qoo10 접속
-# ============================================================== 
+# ==============================================================
 print(f"[INFO] Qoo10 접속: {QOO10_URL}")
-driver.get(QOO10_URL)
+selenium_cookies = []  # 쿠키를 담을 변수 초기화
 
-wait_list(driver)
-data = parse_megawari(driver)
+if QOO10_URL:
+    driver.get(QOO10_URL)
+    wait_list(driver)
+    data = parse_megawari(driver)
+    
+    # [중요] 브라우저를 끄기 전에 쿠키(입장권)를 챙깁니다!
+    selenium_cookies = driver.get_cookies()
+    print(f"[INFO] 쿠키 확보 완료: {len(selenium_cookies)}개")
+    
+else:
+    print("[ERROR] QOO10_URL이 설정되지 않았습니다.")
+    data = []
+
 driver.quit()
 
 
@@ -171,42 +182,45 @@ for row in ws.iter_rows(min_row=2, max_col=3):
 
 
 # ==============================================================
-# 🖼 이미지 삽입
+# 🖼 이미지 삽입 (쿠키 적용 버전)
 # ==============================================================
-# [중요] Referer를 넣어야 Qoo10 서버가 이미지를 줍니다.
+# 1. 세션(Session)을 만들고 챙겨둔 쿠키를 심습니다.
+session = requests.Session()
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Referer": "https://www.qoo10.jp/",  # 이 부분이 핵심입니다!
+    "Referer": "https://www.qoo10.jp/",
     "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
 }
+session.headers.update(headers)
 
-print("[INFO] 이미지 다운로드 및 변환 시작...")
+# Selenium에서 가져온 쿠키를 requests 세션에 주입
+for cookie in selenium_cookies:
+    session.cookies.set(cookie['name'], cookie['value'])
+
+print("[INFO] 이미지 다운로드 및 변환 시작 (인증 쿠키 사용)...")
 
 for i, row in enumerate(data, start=2):
     img_url = row[3]
     if not img_url:
         continue
 
-    # URL 스키마 보정
     if img_url.startswith("//"):
         img_url = "https:" + img_url
 
     try:
-        # 1. 이미지 다운로드 요청
-        resp = requests.get(img_url, headers=headers, timeout=10)
-        resp.raise_for_status() # 403, 404 에러 시 예외 발생
+        # requests.get 대신 session.get을 사용 (쿠키 포함됨)
+        resp = session.get(img_url, timeout=10)
+        resp.raise_for_status()
         
-        # 2. 이미지 데이터 열기
         img_bytes = resp.content
         image = Image.open(BytesIO(img_bytes))
 
-        # 3. 엑셀 호환을 위해 포맷 변환 (WebP/RGBA -> RGB -> PNG)
-        # 투명 배경이 있는 경우 흰색 배경으로 합성
+        # 엑셀 호환을 위해 포맷 변환 (WebP/RGBA -> RGB -> PNG)
         if image.mode in ("RGBA", "LA"):
             background = Image.new("RGB", image.size, (255, 255, 255))
             background.paste(image, mask=image.split()[-1])
             image = background
-        elif image.mode == "P": # 팔레트 모드
+        elif image.mode == "P":
             image = image.convert("RGBA")
             background = Image.new("RGB", image.size, (255, 255, 255))
             background.paste(image, mask=image.split()[-1])
@@ -214,21 +228,14 @@ for i, row in enumerate(data, start=2):
         else:
             image = image.convert("RGB")
 
-        # 4. 엑셀 셀 크기에 맞춰 썸네일 리사이즈
         image.thumbnail((80, 80))
 
-        # 5. 메모리 상에 PNG로 저장 (엑셀이 PNG는 잘 읽음)
         bio = BytesIO()
         image.save(bio, format="PNG")
         bio.seek(0)
 
-        # 6. 엑셀에 붙여넣기
         img = XLImage(bio)
-        
-        # 셀 안에 이미지를 예쁘게 넣기 위한 앵커 설정 (선택사항)
-        # img.width, img.height 등을 조절할 수도 있음
-        
-        ws.add_image(img, f"D{i}") # D열에 추가
+        ws.add_image(img, f"D{i}")
         
         # 서버 부하 방지를 위해 아주 짧게 대기
         time.sleep(0.05)
