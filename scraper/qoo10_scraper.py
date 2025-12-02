@@ -21,9 +21,9 @@ import requests
 from datetime import datetime, timedelta
 
 
-# ==============================================================
+# ============================================================== 
 # 🕒 Timestamped Print (JST)
-# ==============================================================
+# ============================================================== 
 import builtins
 _original_print = builtins.print
 
@@ -34,19 +34,23 @@ def timestamped_print(*args, **kwargs):
 builtins.print = timestamped_print
 
 
-# ==============================================================
+# ============================================================== 
 # 🔐 GitHub Secrets
-# ==============================================================
+# ============================================================== 
 QOO10_URL = os.getenv("QOO10_URL")
-HIGHLIGHT_NAME = os.getenv("HIGHLIGHT_NAME", "メガ割")
+
+# 기존 HIGHLIGHT_NAME → 삭제하고 새로운 2개만 사용
+HIGHLIGHT_NAME1 = os.getenv("HIGHLIGHT_NAME1")
+HIGHLIGHT_NAME2 = os.getenv("HIGHLIGHT_NAME2")
+
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 SEND_TO = os.getenv("SEND_TO")
 
 
-# ==============================================================
+# ============================================================== 
 # 🖥 Headless Chrome 설정
-# ==============================================================
+# ============================================================== 
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
@@ -65,9 +69,9 @@ driver = webdriver.Chrome(
 )
 
 
-# ==============================================================
-# ⏳ 메가割 리스트 로딩 대기
-# ==============================================================
+# ============================================================== 
+# ⏳ 메가와리 리스트 로딩 대기
+# ============================================================== 
 def wait_list(driver, timeout=30):
     try:
         WebDriverWait(driver, timeout).until(
@@ -75,16 +79,16 @@ def wait_list(driver, timeout=30):
                 (By.CSS_SELECTOR, "ul.megasale_rank_list > li")
             )
         )
-        print("[INFO] 메가割 랭킹 리스트 로딩 완료")
+        print("[INFO] 메가와리 랭킹 리스트 로딩 완료")
         return True
     except:
-        print("[WARN] 메가割 리스트 감지 실패")
+        print("[WARN] 메가와리 리스트 감지 실패")
         return False
 
 
-# ==============================================================
-# 🧩 메가割 파서 (이미지 개선 포함)
-# ==============================================================
+# ============================================================== 
+# 🧩 메가와리 파서 (이미지 개선 포함)
+# ============================================================== 
 def parse_megawari(driver):
     results = []
     items = driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list > li")
@@ -92,38 +96,32 @@ def parse_megawari(driver):
 
     for item in items[:100]:
 
-        # 순위
         try:
             rank = item.find_element(By.CSS_SELECTOR, ":scope .rank_num").text.strip()
         except:
             rank = ""
 
-        # 상품명
         try:
             name = item.find_element(By.CSS_SELECTOR, ":scope .title span").text.strip()
         except:
             name = ""
 
-        # 총판매액(= 기존 price 값)
         try:
             total = item.find_element(By.CSS_SELECTOR, ":scope .price").text.strip()
         except:
             total = ""
 
-        # 이미지 (lazy-load 대응)
         try:
             img_el = item.find_element(
                 By.CSS_SELECTOR,
                 ":scope .thumb_area img, :scope .thumb img"
             )
-
             img_url = (
                 img_el.get_attribute("data-src")
                 or img_el.get_attribute("data-original")
                 or img_el.get_attribute("data-lazy")
                 or img_el.get_attribute("src")
             )
-
         except:
             img_url = ""
 
@@ -132,9 +130,9 @@ def parse_megawari(driver):
     return results
 
 
-# ==============================================================
+# ============================================================== 
 # 🚀 Qoo10 접속
-# ==============================================================
+# ============================================================== 
 print(f"[INFO] Qoo10 접속: {QOO10_URL}")
 driver.get(QOO10_URL)
 
@@ -143,9 +141,9 @@ data = parse_megawari(driver)
 driver.quit()
 
 
-# ==============================================================
-# 📘 엑셀 생성 (새 구조)
-# ==============================================================
+# ============================================================== 
+# 📘 엑셀 생성
+# ============================================================== 
 wb = Workbook()
 ws = wb.active
 ws.title = "Qoo10 Ranking"
@@ -156,17 +154,30 @@ for row in data:
     ws.append(row[:-1])
 
 
-# 하이라이트 적용
+# ============================================================== 
+# 🎨 하이라이트 적용 (2개 키워드)
+# ============================================================== 
+yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
 for row in ws.iter_rows(min_row=2, max_col=3):
-    if HIGHLIGHT_NAME in str(row[1].value):
+    name = str(row[1].value)
+
+    # 첫 번째 하이라이트
+    if HIGHLIGHT_NAME1 and HIGHLIGHT_NAME1.lower() in name.lower():
         for cell in row:
-            cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+            cell.fill = yellow_fill
+            cell.font = Font(bold=True)
+
+    # 두 번째 하이라이트
+    if HIGHLIGHT_NAME2 and HIGHLIGHT_NAME2.lower() in name.lower():
+        for cell in row:
+            cell.fill = yellow_fill
             cell.font = Font(bold=True)
 
 
-# ==============================================================
-# 🖼 이미지 삽입 — 투명 PNG & WebP 완전 해결판
-# ==============================================================
+# ============================================================== 
+# 🖼 이미지 삽입
+# ============================================================== 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
@@ -186,7 +197,6 @@ for i, row in enumerate(data, start=2):
 
         image = Image.open(BytesIO(img_bytes))
 
-        # 투명 PNG → RGB 변환
         if image.mode in ("RGBA", "P"):
             bg = Image.new("RGB", image.size, (255, 255, 255))
             try:
@@ -212,17 +222,17 @@ for i, row in enumerate(data, start=2):
         print(f"[WARN] 이미지 실패: {img_url} → {e}")
 
 
-# ==============================================================
+# ============================================================== 
 # 💾 저장
-# ==============================================================
+# ============================================================== 
 file_name = "Qoo10_Rank.xlsx"
 wb.save(file_name)
 print(f"[INFO] 엑셀 저장 완료: {file_name}")
 
 
-# ==============================================================
+# ============================================================== 
 # 📧 이메일 전송
-# ==============================================================
+# ============================================================== 
 msg = MIMEMultipart()
 msg["From"] = GMAIL_USER
 msg["To"] = SEND_TO
@@ -231,9 +241,9 @@ today = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
 msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
 
 body = MIMEText(
-    f"안녕하세요,\n\n자동 생성된 Qoo10 {HIGHLIGHT_NAME} 랭킹 보고서입니다.\n"
+    f"안녕하세요,\n\n자동 생성된 Qoo10 랭킹 보고서입니다.\n"
     f"생성일자: {today}\n"
-    f"URL: {QOO10_URL}\n\n짱 많이 사랑해오!",
+    f"URL: {QOO10_URL}\n\n윤쨩 왕사랑해오! 파이팅구에오!",
     "plain"
 )
 msg.attach(body)
