@@ -248,8 +248,13 @@ try:
         today = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
         msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
         
-        body_text = f"URL: {QOO10_URL}\n\n보고서가 첨부되었습니다."
-        msg.attach(MIMEText(body_text, "plain"))
+        body = MIMEText(
+            f"안녕하세요,\n\n자동 생성된 Qoo10 랭킹 보고서입니다.\n"
+            f"생성일자: {today}\n"
+            f"URL: {QOO10_URL}\n\n짱 많이 사랑해오!",
+            "plain"
+        )
+        msg.attach(body)
 
         with open(file_name, "rb") as f:
             part = MIMEBase("application", "octet-stream")
