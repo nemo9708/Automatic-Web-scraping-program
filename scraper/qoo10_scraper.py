@@ -251,7 +251,7 @@ try:
         body = MIMEText(
             f"안녕하세요,\n\n자동 생성된 Qoo10 랭킹 보고서입니다.\n"
             f"생성일자: {today}\n"
-            f"URL: {QOO10_URL}\n\n짱 많이 사랑해오!",
+            f"URL: {QOO10_URL}\n\n짱 마아아아아니 마아아아아아아아니 사랑해오!!!!!",
             "plain"
         )
         msg.attach(body)
