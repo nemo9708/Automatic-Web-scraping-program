@@ -38,11 +38,8 @@ builtins.print = timestamped_print
 # 🔐 GitHub Secrets
 # ============================================================== 
 QOO10_URL = os.getenv("QOO10_URL")
-
-# 기존 HIGHLIGHT_NAME → 삭제하고 새로운 2개만 사용
 HIGHLIGHT_NAME1 = os.getenv("HIGHLIGHT_NAME1")
 HIGHLIGHT_NAME2 = os.getenv("HIGHLIGHT_NAME2")
-
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 SEND_TO = os.getenv("SEND_TO")
@@ -162,16 +159,14 @@ yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="s
 for row in ws.iter_rows(min_row=2, max_col=3):
     name = str(row[1].value)
 
-    # 첫 번째 하이라이트
-    if HIGHLIGHT_NAME1 and HIGHLIGHT_NAME1.lower() in name.lower():
+    if HIGHLIGHT_NAME1 and HIGHLIGHT_NAME1 in name:
         for cell in row:
-            cell.fill = yellow_fill
+            cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
             cell.font = Font(bold=True)
 
-    # 두 번째 하이라이트
-    if HIGHLIGHT_NAME2 and HIGHLIGHT_NAME2.lower() in name.lower():
+    if HIGHLIGHT_NAME2 and HIGHLIGHT_NAME2 in name:
         for cell in row:
-            cell.fill = yellow_fill
+            cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
             cell.font = Font(bold=True)
 
 
