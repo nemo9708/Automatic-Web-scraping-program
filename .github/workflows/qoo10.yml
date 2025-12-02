@@ -28,7 +28,8 @@ jobs:
       - name: Run scraper
         env:
           QOO10_URL: ${{ secrets.QOO10_URL }}
-          HIGHLIGHT_NAME: ${{ secrets.HIGHLIGHT_NAME }}
+          HIGHLIGHT_NAME1: ${{ secrets.HIGHLIGHT_NAME1 }}
+          HIGHLIGHT_NAME2: ${{ secrets.HIGHLIGHT_NAME2 }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
           SEND_TO: ${{ secrets.SEND_TO }}
