@@ -170,51 +170,71 @@ for row in ws.iter_rows(min_row=2, max_col=3):
             cell.font = Font(bold=True)
 
 
-# ============================================================== 
+# ==============================================================
 # 🖼 이미지 삽입
-# ============================================================== 
+# ==============================================================
+# [중요] Referer를 넣어야 Qoo10 서버가 이미지를 줍니다.
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://www.qoo10.jp/",  # 이 부분이 핵심입니다!
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
 }
+
+print("[INFO] 이미지 다운로드 및 변환 시작...")
 
 for i, row in enumerate(data, start=2):
     img_url = row[3]
     if not img_url:
         continue
 
+    # URL 스키마 보정
     if img_url.startswith("//"):
         img_url = "https:" + img_url
 
     try:
+        # 1. 이미지 다운로드 요청
         resp = requests.get(img_url, headers=headers, timeout=10)
-        resp.raise_for_status()
+        resp.raise_for_status() # 403, 404 에러 시 예외 발생
+        
+        # 2. 이미지 데이터 열기
         img_bytes = resp.content
-
         image = Image.open(BytesIO(img_bytes))
 
-        if image.mode in ("RGBA", "P"):
-            bg = Image.new("RGB", image.size, (255, 255, 255))
-            try:
-                bg.paste(image, mask=image.split()[3])
-            except:
-                bg.paste(image)
-            image = bg
+        # 3. 엑셀 호환을 위해 포맷 변환 (WebP/RGBA -> RGB -> PNG)
+        # 투명 배경이 있는 경우 흰색 배경으로 합성
+        if image.mode in ("RGBA", "LA"):
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[-1])
+            image = background
+        elif image.mode == "P": # 팔레트 모드
+            image = image.convert("RGBA")
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[-1])
+            image = background
         else:
             image = image.convert("RGB")
 
+        # 4. 엑셀 셀 크기에 맞춰 썸네일 리사이즈
         image.thumbnail((80, 80))
 
+        # 5. 메모리 상에 PNG로 저장 (엑셀이 PNG는 잘 읽음)
         bio = BytesIO()
         image.save(bio, format="PNG")
         bio.seek(0)
 
+        # 6. 엑셀에 붙여넣기
         img = XLImage(bio)
-        ws.add_image(img, f"D{i}")
-
-        time.sleep(0.15)
+        
+        # 셀 안에 이미지를 예쁘게 넣기 위한 앵커 설정 (선택사항)
+        # img.width, img.height 등을 조절할 수도 있음
+        
+        ws.add_image(img, f"D{i}") # D열에 추가
+        
+        # 서버 부하 방지를 위해 아주 짧게 대기
+        time.sleep(0.05)
 
     except Exception as e:
-        print(f"[WARN] 이미지 실패: {img_url} → {e}")
+        print(f"[WARN] 이미지 처리 실패 (순위 {row[0]}): {img_url}\n -> 원인: {e}")
 
 
 # ============================================================== 
