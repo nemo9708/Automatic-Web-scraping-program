@@ -63,16 +63,19 @@ driver = webdriver.Chrome(
 # 📜 스크롤 다운 (중요: 이미지 Lazy Loading 해제)
 # ==============================================================
 def scroll_to_bottom(driver):
-    print("[INFO] 페이지 스크롤 시작 (이미지 로딩)...")
+    print("[INFO] 페이지 스크롤 시작 (이미지를 깨우기 위해 천천히 스크롤)...")
     last_height = driver.execute_script("return document.body.scrollHeight")
-    while True:
-        # 끝까지 부드럽게 스크롤
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)  # 로딩 대기
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            break
-        last_height = new_height
+    current_position = 0
+    step = 800  # 모니터 한 화면 정도의 높이씩 쪼개서 내려감
+
+    while current_position < last_height:
+        current_position += step
+        driver.execute_script(f"window.scrollTo(0, {current_position});")
+        time.sleep(0.4)  # 이미지가 뜰 수 있도록 0.4초 대기
+        
+        # 스크롤을 내리면서 페이지 길이가 길어졌는지 매번 확인
+        last_height = driver.execute_script("return document.body.scrollHeight")
+        
     # 다시 맨 위로 (혹시 모를 오류 방지)
     driver.execute_script("window.scrollTo(0, 0);")
     print("[INFO] 페이지 스크롤 완료")
@@ -102,11 +105,12 @@ def parse_megawari(driver):
         except:
             total = ""
 
-        try:
+try:
             img_el = item.find_element(By.CSS_SELECTOR, "img")
-            # data-original 등을 우선순위로 둡니다.
+            # Qoo10 특유의 원본 이미지 저장 속성인 gd_src를 1순위로 찾습니다.
             img_url = (
-                img_el.get_attribute("data-src")
+                img_el.get_attribute("gd_src")
+                or img_el.get_attribute("data-src")
                 or img_el.get_attribute("data-original")
                 or img_el.get_attribute("data-lazy")
                 or img_el.get_attribute("src")
