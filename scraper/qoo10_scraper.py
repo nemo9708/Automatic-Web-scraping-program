@@ -175,18 +175,19 @@ try:
     # ==============================================================
     print("[INFO] 이미지 다운로드 시작 (브라우저 세션 연동)...")
     
-    # requests 세션 생성 및 브라우저 정보 복사
     session = requests.Session()
     session.headers.update({
         "User-Agent": user_agent,
-        "Referer": driver.current_url, # 현재 보고 있는 페이지 URL을 레퍼러로 설정
+        "Referer": driver.current_url,
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
     })
     
-    # 셀레니움 쿠키를 requests 세션에 이식
     cookies = driver.get_cookies()
     for cookie in cookies:
         session.cookies.set(cookie['name'], cookie['value'])
+
+    # 엑셀 D열(이미지 열)의 너비를 조금 넓혀줍니다.
+    ws.column_dimensions['D'].width = 12
 
     for i, row in enumerate(data, start=2):
         img_url = row[3]
@@ -195,12 +196,15 @@ try:
 
         if img_url.startswith("//"):
             img_url = "https:" + img_url
+            
+        # Data URI (Base64) 더미 이미지인 경우 스킵 (보통 레이지 로딩이 덜 풀렸을 때 발생)
+        if img_url.startswith("data:image"):
+            print(f"[WARN] Base64 더미 이미지 감지되어 스킵 (순위 {row[0]})")
+            continue
 
         try:
-            # 브라우저와 동일한 세션으로 이미지 요청
             resp = session.get(img_url, timeout=10)
             
-            # 만약 403 Forbidden이 뜨면 이미지 대신 빈 텍스트 처리
             if resp.status_code != 200:
                 print(f"[WARN] 이미지 접근 거부 ({resp.status_code}): {img_url}")
                 continue
@@ -208,7 +212,6 @@ try:
             img_bytes = resp.content
             image = Image.open(BytesIO(img_bytes))
 
-            # 포맷 변환 (WebP/RGBA -> RGB -> PNG)
             if image.mode in ("RGBA", "LA"):
                 background = Image.new("RGB", image.size, (255, 255, 255))
                 background.paste(image, mask=image.split()[-1])
@@ -225,14 +228,19 @@ try:
             bio = BytesIO()
             image.save(bio, format="PNG")
             bio.seek(0)
+            
             img = XLImage(bio)
+            # 엑셀 행 높이를 80 픽셀 크기에 맞게 조절 (약 60 포인트)
+            ws.row_dimensions[i].height = 65 
+            
+            # 셀 안에 이미지 삽입
             ws.add_image(img, f"D{i}")
             
-            time.sleep(0.05) # 서버 부하 방지
+            time.sleep(0.1) # 서버 부하 방지를 위해 0.1초로 조금 늘림
 
         except Exception as e:
-            # 오류 발생 시 무시하고 다음 진행
-            pass
+            # 🌟 핵심: 이제 에러를 숨기지 않고 C# 로그 창에 출력되도록 합니다!
+            print(f"[ERROR] 이미지 삽입 실패 (순위 {row[0]}): {e} / URL: {img_url}")
 
     # ==============================================================
     # 💾 저장 및 메일 전송
