@@ -105,7 +105,7 @@ def parse_megawari(driver):
         except:
             total = ""
 
-try:
+        try:
             img_el = item.find_element(By.CSS_SELECTOR, "img")
             # Qoo10 특유의 원본 이미지 저장 속성인 gd_src를 1순위로 찾습니다.
             img_url = (
