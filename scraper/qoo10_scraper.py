@@ -99,70 +99,70 @@ def scroll_to_bottom(driver):
     print("[INFO] 페이지 스크롤 완료")
 
 # ==============================================================
-# 🧩 메가와리 파서 (구조 변경 대응 업데이트 버전)
+# 🧩 메가와리 파서 (새로운 'list_v2' 구조 완벽 대응 버전)
 # ==============================================================
 def parse_megawari(driver):
     results = []
     
-    # Qoo10 메가와리 및 일반 기획전 페이지에서 최근 쓰이는 새로운 클래스명들 종합
+    # 새롭게 개편된 구조(ul.list_v2)와 구버전 구조 모두 포함하여 탐색
     possible_selectors = [
+        "ul.list_v2 > li",           # 🌟 최신 Qoo10 개편 사이트 구조
         "ul.megasale_rank_list > li", 
         "ul.type_gallery > li", 
         "ul.list_item > li",
         "div[data-itemcode]",
-        "div.item-card",
-        "div.goods-item",
-        "li.list-item",
-        "li[data-itemcode]",
-        ".ranking-list li",
-        ".promotion-item",
-        "div.item_wrap"
+        "li.list-item"
     ]
 
     items = []
-    found_selector = ""
-    # 여러 구조 중 현재 페이지에 맞는 구조를 찾을 때까지 반복
     for selector in possible_selectors:
         items = driver.find_elements(By.CSS_SELECTOR, selector)
         if len(items) > 0:
-            found_selector = selector
             print(f"[INFO] '{selector}' 구조에서 상품 {len(items)}개 감지 성공!")
             break
 
     if not items:
-        print("[ERROR] 등록된 어떠한 형태의 리스트도 감지되지 않았습니다. 사이트 구조가 완전히 바뀐 것 같습니다.")
-        return results # 찾지 못하면 빈 리스트 반환
+        print("[ERROR] 등록된 어떠한 형태의 리스트도 감지되지 않았습니다.")
+        return results
 
     for item in items[:100]:
-        # 1. 순위 추출
+        # 1. 순위 추출 (새 구조 반영)
         try:
-            rank = item.find_element(By.CSS_SELECTOR, ".rank_num, .rank, .num, em.rank-badge").text.strip()
-        except: rank = ""
+            rank = item.find_element(By.CSS_SELECTOR, ".list_v2_rank, .rank_num, .rank, em.rank-badge").text.strip()
+        except: 
+            rank = ""
         
-        # 2. 상품명 추출
+        # 2. 상품명 추출 (새 구조 반영: 보통 item_info 안이나 alt 태그로 추출)
         try:
-            name = item.find_element(By.CSS_SELECTOR, ".title, .sbj, .goods-name, .item-title, strong.text").text.strip()
-        except: name = ""
+            # list_v2 구조에서는 제목이 a 태그나 img alt, 혹은 item_info 내부에 있음
+            name_elem = item.find_element(By.CSS_SELECTOR, ".item_info .title, .list_v2_thumbnail img.thumbnail_image")
+            # 태그가 이미지면 alt 속성을, 텍스트 태그면 text를 가져옴
+            if name_elem.tag_name == "img":
+                name = name_elem.get_attribute("alt").strip()
+            else:
+                name = name_elem.text.strip()
+        except:
+            name = ""
         
-        # 3. 가격 추출
+        # 3. 가격 추출 (새 구조 반영)
         try:
-            total = item.find_element(By.CSS_SELECTOR, ".price, .prc strong, .sale-price, .discount-price, .price-value").text.strip()
-        except: total = ""
+            total = item.find_element(By.CSS_SELECTOR, ".item_info .price, .item_info .sale_price, .prc strong").text.strip()
+        except: 
+            total = ""
         
-        # 4. 이미지 주소 추출
+        # 4. 이미지 추출 (새 구조 반영: thumbnail_image 클래스)
         try:
-            img_el = item.find_element(By.CSS_SELECTOR, "img")
+            img_el = item.find_element(By.CSS_SELECTOR, "img.thumbnail_image, img")
             img_url = (
-                img_el.get_attribute("gd_src")
+                img_el.get_attribute("src")
+                or img_el.get_attribute("gd_src")
                 or img_el.get_attribute("data-src")
-                or img_el.get_attribute("data-original")
-                or img_el.get_attribute("data-lazy")
-                or img_el.get_attribute("src")
             )
-        except: img_url = ""
+        except: 
+            img_url = ""
 
-        # 이름과 가격이 모두 감지되지 않은 쓰레기 데이터(빈 칸 등)는 건너뛰기
-        if not name and not total:
+        # 이름이 감지되지 않으면 유효한 상품이 아니므로 건너뛰기
+        if not name:
             continue
 
         results.append([rank, name, total, img_url])
