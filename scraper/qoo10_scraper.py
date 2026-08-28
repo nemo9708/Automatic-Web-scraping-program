@@ -125,12 +125,10 @@ def parse_megawari(driver):
         print("[ERROR] 등록된 어떠한 형태의 리스트도 감지되지 않았습니다.")
         return results
 
-    for item in items[:100]:
-        # 1. 순위 추출 (새 구조 반영)
-        try:
-            rank = item.find_element(By.CSS_SELECTOR, ".list_v2_rank, .rank_num, .rank, em.rank-badge").text.strip()
-        except: 
-            rank = ""
+        # enumerate를 사용해 idx에 1부터 차례대로 번호를 매김
+    for idx, item in enumerate(items[:100], start=1):
+        # 1. 순위 추출 (텍스트 깨짐 현상 방지를 위해 강제로 순번 부여)
+        rank = str(idx)
         
         # 2. 상품명 추출 (새 구조 반영: 보통 item_info 안이나 alt 태그로 추출)
         try:
