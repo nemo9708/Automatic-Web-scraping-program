@@ -99,23 +99,57 @@ def scroll_to_bottom(driver):
     print("[INFO] 페이지 스크롤 완료")
 
 # ==============================================================
-# 🧩 메가와리 파서
+# 🧩 메가와리 파서 (구조 변경 대응 업데이트 버전)
 # ==============================================================
 def parse_megawari(driver):
     results = []
-    items = driver.find_elements(By.CSS_SELECTOR, "ul.megasale_rank_list > li, ul.type_gallery > li, ul.list_item > li")
-    print(f"[INFO] 감지된 아이템 수: {len(items)}")
+    
+    # Qoo10 메가와리 및 일반 기획전 페이지에서 최근 쓰이는 새로운 클래스명들 종합
+    possible_selectors = [
+        "ul.megasale_rank_list > li", 
+        "ul.type_gallery > li", 
+        "ul.list_item > li",
+        "div[data-itemcode]",
+        "div.item-card",
+        "div.goods-item",
+        "li.list-item",
+        "li[data-itemcode]",
+        ".ranking-list li",
+        ".promotion-item",
+        "div.item_wrap"
+    ]
+
+    items = []
+    found_selector = ""
+    # 여러 구조 중 현재 페이지에 맞는 구조를 찾을 때까지 반복
+    for selector in possible_selectors:
+        items = driver.find_elements(By.CSS_SELECTOR, selector)
+        if len(items) > 0:
+            found_selector = selector
+            print(f"[INFO] '{selector}' 구조에서 상품 {len(items)}개 감지 성공!")
+            break
+
+    if not items:
+        print("[ERROR] 등록된 어떠한 형태의 리스트도 감지되지 않았습니다. 사이트 구조가 완전히 바뀐 것 같습니다.")
+        return results # 찾지 못하면 빈 리스트 반환
 
     for item in items[:100]:
+        # 1. 순위 추출
         try:
-            rank = item.find_element(By.CSS_SELECTOR, ".rank_num").text.strip()
+            rank = item.find_element(By.CSS_SELECTOR, ".rank_num, .rank, .num, em.rank-badge").text.strip()
         except: rank = ""
+        
+        # 2. 상품명 추출
         try:
-            name = item.find_element(By.CSS_SELECTOR, ".title, .sbj").text.strip()
+            name = item.find_element(By.CSS_SELECTOR, ".title, .sbj, .goods-name, .item-title, strong.text").text.strip()
         except: name = ""
+        
+        # 3. 가격 추출
         try:
-            total = item.find_element(By.CSS_SELECTOR, ".price, .prc strong").text.strip()
+            total = item.find_element(By.CSS_SELECTOR, ".price, .prc strong, .sale-price, .discount-price, .price-value").text.strip()
         except: total = ""
+        
+        # 4. 이미지 주소 추출
         try:
             img_el = item.find_element(By.CSS_SELECTOR, "img")
             img_url = (
@@ -127,7 +161,12 @@ def parse_megawari(driver):
             )
         except: img_url = ""
 
+        # 이름과 가격이 모두 감지되지 않은 쓰레기 데이터(빈 칸 등)는 건너뛰기
+        if not name and not total:
+            continue
+
         results.append([rank, name, total, img_url])
+        
     return results
 
 # ==============================================================
