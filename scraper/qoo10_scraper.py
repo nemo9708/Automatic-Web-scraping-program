@@ -175,10 +175,29 @@ try:
     if not QOO10_URL:
         raise ValueError("QOO10_URL 환경변수가 없습니다.")
 
-    driver.get(QOO10_URL)
-    WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-    scroll_to_bottom(driver)
-    data = parse_megawari(driver)
+    # 🌟 재시도 로직 추가 (최대 3회 시도)
+    max_retries = 3
+    data = []
+
+    for attempt in range(1, max_retries + 1):
+        driver.get(QOO10_URL)
+        # 페이지 로딩 대기
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        scroll_to_bottom(driver)
+        
+        # 데이터 수집 시도
+        data = parse_megawari(driver)
+
+        if data:
+            print(f"[INFO] {attempt}번째 시도 성공: 상품 {len(data)}개 수집 완료!")
+            break  # 데이터 수집에 성공하면 반복문을 탈출합니다.
+        else:
+            print(f"[WARNING] {attempt}번째 시도 실패: 데이터를 찾지 못했습니다.")
+            if attempt < max_retries:
+                print("[INFO] 5초 대기 후 페이지를 새로고침하여 재시도합니다...")
+                time.sleep(5)
+            else:
+                print("[ERROR] 최대 재시도 횟수를 초과했습니다. 빈 상태로 엑셀을 생성합니다.")
 
     # 📘 엑셀 생성
     wb = Workbook()
@@ -186,8 +205,10 @@ try:
     ws.title = "Qoo10 Ranking"
     ws.append(["순위", "상품명", "총판매액", "이미지"])
 
-    for row in data:
-        ws.append(row[:-1])
+    # 수집된 데이터가 있을 때만 엑셀에 데이터 추가
+    if data:
+        for row in data:
+            ws.append(row[:-1])
 
     # 🎨 하이라이트 적용
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
