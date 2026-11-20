@@ -280,7 +280,7 @@ try:
         part.add_header("Content-Disposition", f"attachment; filename=Qoo10_Rank.xlsx")
         msg.attach(part)
 
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        with smtplib.SMTP("smtp.naver.com", 587) as server:
             server.starttls()
             server.login(GMAIL_USER, GMAIL_PASS)
             server.send_message(msg)
