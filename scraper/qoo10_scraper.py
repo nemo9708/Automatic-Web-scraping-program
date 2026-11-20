@@ -15,6 +15,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -29,15 +30,11 @@ import builtins
 def get_base_path():
     """실행 파일(.exe) 또는 스크립트(.py)가 위치한 폴더 경로를 반환합니다."""
     if getattr(sys, 'frozen', False):
-        # PyInstaller 등으로 빌드된 .exe 파일인 경우
         return os.path.dirname(sys.executable)
-    # 일반 .py 스크립트 실행인 경우
     return os.path.dirname(os.path.abspath(__file__))
 
 BASE_DIR = get_base_path()
 
-# GCP JSON 키 파일 경로 설정 (이제 내 컴퓨터 경로가 아닌 '현재 폴더'를 기준으로 찾음)
-# 다른 사람에게 줄 때 이 JSON 파일을 프로그램과 같은 폴더에 두기만 하면 됩니다.
 GCP_KEY_FILENAME = "qoo10-scraper-auto-22518a3e5c96.json"
 GCP_KEY_PATH = os.path.join(BASE_DIR, GCP_KEY_FILENAME)
 
@@ -51,7 +48,7 @@ def timestamped_print(*args, **kwargs):
 builtins.print = timestamped_print
 
 # ==============================================================
-# 🔐 환경 변수 로드 (경로 문제 해결을 위해 환경 변수에서 경로를 읽도록 구성 가능)
+# 🔐 환경 변수 로드
 # ==============================================================
 QOO10_URL = os.getenv("QOO10_URL")
 HIGHLIGHT_NAME1 = os.getenv("HIGHLIGHT_NAME1")
@@ -60,17 +57,20 @@ GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
 SEND_TO = os.getenv("SEND_TO")
 
-# 만약 스케줄러 온/오프 기능에서 경로 에러가 난다면, 
-# 해당 기능을 수행하는 코드에서 반드시 위에서 정의한 'GCP_KEY_PATH'를 사용해야 합니다.
-
 # ==============================================================
-# 🖥 Chrome 설정
+# 🖥 Chrome 설정 (리눅스 헤드리스 타임아웃 방지 최적화)
 # ==============================================================
 chrome_options = Options()
+# 🌟 핵심: 광고/트래킹 스크립트 완료를 기다리지 않고 DOM 로드 즉시 진행
+chrome_options.page_load_strategy = 'eager'
+
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
+chrome_options.add_argument("--disable-extensions")
+chrome_options.add_argument("--disable-software-rasterizer")
+chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 chrome_options.add_argument("--window-size=1920,1080")
 user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 chrome_options.add_argument(f"--user-agent={user_agent}")
@@ -79,6 +79,9 @@ driver = webdriver.Chrome(
     service=Service(ChromeDriverManager().install()),
     options=chrome_options
 )
+# 페이지 로드 최대 대기 시간을 30초로 제한 (120초 행 걸림 방지)
+driver.set_page_load_timeout(30)
+driver.set_script_timeout(30)
 
 # ==============================================================
 # 📜 스크롤 다운 (중요: 이미지 Lazy Loading 해제)
@@ -88,12 +91,15 @@ def scroll_to_bottom(driver):
     last_height = driver.execute_script("return document.body.scrollHeight")
     current_position = 0
     step = 800
+    max_scrolls = 30  # 무한 스크롤 늪 방지용 상한선
+    scroll_count = 0
 
-    while current_position < last_height:
+    while current_position < last_height and scroll_count < max_scrolls:
         current_position += step
         driver.execute_script(f"window.scrollTo(0, {current_position});")
         time.sleep(0.4)
         last_height = driver.execute_script("return document.body.scrollHeight")
+        scroll_count += 1
         
     driver.execute_script("window.scrollTo(0, 0);")
     print("[INFO] 페이지 스크롤 완료")
@@ -104,7 +110,6 @@ def scroll_to_bottom(driver):
 def parse_megawari(driver):
     results = []
     
-    # 새롭게 개편된 구조(ul.list_v2)와 구버전 구조 모두 포함하여 탐색
     possible_selectors = [
         "ul.list_v2 > li",           # 🌟 최신 Qoo10 개편 사이트 구조
         "ul.megasale_rank_list > li", 
@@ -125,16 +130,11 @@ def parse_megawari(driver):
         print("[ERROR] 등록된 어떠한 형태의 리스트도 감지되지 않았습니다.")
         return results
 
-        # enumerate를 사용해 idx에 1부터 차례대로 번호를 매김
     for idx, item in enumerate(items[:100], start=1):
-        # 1. 순위 추출 (텍스트 깨짐 현상 방지를 위해 강제로 순번 부여)
         rank = str(idx)
         
-        # 2. 상품명 추출 (새 구조 반영: 보통 item_info 안이나 alt 태그로 추출)
         try:
-            # list_v2 구조에서는 제목이 a 태그나 img alt, 혹은 item_info 내부에 있음
             name_elem = item.find_element(By.CSS_SELECTOR, ".item_info .title, .list_v2_thumbnail img.thumbnail_image")
-            # 태그가 이미지면 alt 속성을, 텍스트 태그면 text를 가져옴
             if name_elem.tag_name == "img":
                 name = name_elem.get_attribute("alt").strip()
             else:
@@ -142,13 +142,11 @@ def parse_megawari(driver):
         except:
             name = ""
         
-        # 3. 가격 추출 (새 구조 반영)
         try:
             total = item.find_element(By.CSS_SELECTOR, ".item_info .price, .item_info .sale_price, .prc strong").text.strip()
         except: 
             total = ""
         
-        # 4. 이미지 추출 (새 구조 반영: thumbnail_image 클래스)
         try:
             img_el = item.find_element(By.CSS_SELECTOR, "img.thumbnail_image, img")
             img_url = (
@@ -159,7 +157,6 @@ def parse_megawari(driver):
         except: 
             img_url = ""
 
-        # 이름이 감지되지 않으면 유효한 상품이 아니므로 건너뛰기
         if not name:
             continue
 
@@ -175,22 +172,25 @@ try:
     if not QOO10_URL:
         raise ValueError("QOO10_URL 환경변수가 없습니다.")
 
-    # 🌟 재시도 로직 추가 (최대 3회 시도)
     max_retries = 3
     data = []
 
     for attempt in range(1, max_retries + 1):
-        driver.get(QOO10_URL)
-        # 페이지 로딩 대기
-        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        try:
+            driver.get(QOO10_URL)
+        except TimeoutException:
+            print("[WARNING] 페이지 로딩 30초 초과 -> 로딩 강제 중지 후 데이터 추출 진행")
+            driver.execute_script("window.stop();")
+
+        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        time.sleep(2)  # 동적 리스트 렌더링을 위한 짧은 대기
         scroll_to_bottom(driver)
         
-        # 데이터 수집 시도
         data = parse_megawari(driver)
 
         if data:
             print(f"[INFO] {attempt}번째 시도 성공: 상품 {len(data)}개 수집 완료!")
-            break  # 데이터 수집에 성공하면 반복문을 탈출합니다.
+            break
         else:
             print(f"[WARNING] {attempt}번째 시도 실패: 데이터를 찾지 못했습니다.")
             if attempt < max_retries:
@@ -205,7 +205,6 @@ try:
     ws.title = "Qoo10 Ranking"
     ws.append(["순위", "상품명", "총판매액", "이미지"])
 
-    # 수집된 데이터가 있을 때만 엑셀에 데이터 추가
     if data:
         for row in data:
             ws.append(row[:-1])
@@ -255,15 +254,15 @@ try:
                 ws.add_image(img, f"D{i}")
                 time.sleep(0.1)
         except Exception as e:
-            print(f"[ERROR] 이미지 삽입 실패 (순위 {row[rank]}): {e}")
+            print(f"[ERROR] 이미지 삽입 실패 (순위 {row[0]}): {e}")
 
     # 💾 저장 및 메일 전송
-    # 저장 경로 역시 실행 위치(BASE_DIR)를 기준으로 설정하면 더 안전합니다.
     file_path = os.path.join(BASE_DIR, "Qoo10_Rank.xlsx")
     wb.save(file_path)
     print(f"[INFO] 엑셀 저장 완료: {file_path}")
 
     if GMAIL_USER and GMAIL_PASS and SEND_TO:
+        print(f"[INFO] 메일 전송 시도: {GMAIL_USER} -> {SEND_TO}")
         msg = MIMEMultipart()
         msg["From"] = GMAIL_USER
         msg["To"] = SEND_TO
@@ -277,7 +276,7 @@ try:
             part = MIMEBase("application", "octet-stream")
             part.set_payload(f.read())
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", f"attachment; filename=Qoo10_Rank.xlsx")
+        part.add_header("Content-Disposition", "attachment; filename=Qoo10_Rank.xlsx")
         msg.attach(part)
 
         with smtplib.SMTP("smtp.naver.com", 587) as server:
@@ -285,6 +284,8 @@ try:
             server.login(GMAIL_USER, GMAIL_PASS)
             server.send_message(msg)
         print("[INFO] 메일 전송 완료")
+    else:
+        print("[WARNING] 메일 환경변수(GMAIL_USER, GMAIL_PASS, SEND_TO) 중 누락된 값이 있어 발송을 건너뜁니다.")
     
 except Exception as e:
     print(f"[ERROR] 프로그램 실행 중 오류: {e}")
