@@ -146,14 +146,17 @@ def parse_megawari(driver):
             total = item.find_element(By.CSS_SELECTOR, ".item_info .price, .item_info .sale_price, .prc strong").text.strip()
         except: 
             total = ""
-        
+       
         try:
             img_el = item.find_element(By.CSS_SELECTOR, "img.thumbnail_image, img")
-            img_url = (
-                img_el.get_attribute("src")
-                or img_el.get_attribute("gd_src")
-                or img_el.get_attribute("data-src")
-            )
+            gd_src = img_el.get_attribute("gd_src")
+            data_src = img_el.get_attribute("data-src")
+            src = img_el.get_attribute("src")
+            
+            # 회색 기본 플레이스홀더(no_image 등)가 아닌 실제 주소 우선 선택
+            img_url = gd_src or data_src or src
+            if img_url and ("no_image" in img_url or "blank" in img_url):
+                img_url = gd_src or data_src or ""
         except: 
             img_url = ""
 
@@ -239,22 +242,34 @@ try:
         if not img_url or img_url.startswith("data:image"): continue
         if img_url.startswith("//"): img_url = "https:" + img_url
 
-        try:
-            resp = session.get(img_url, timeout=10)
-            if resp.status_code == 200:
-                img_bytes = resp.content
-                image = Image.open(BytesIO(img_bytes))
-                image = image.convert("RGB")
-                image.thumbnail((80, 80))
-                bio = BytesIO()
-                image.save(bio, format="PNG")
-                bio.seek(0)
-                img = XLImage(bio)
-                ws.row_dimensions[i].height = 65 
-                ws.add_image(img, f"D{i}")
-                time.sleep(0.1)
-        except Exception as e:
-            print(f"[ERROR] 이미지 삽입 실패 (순위 {row[0]}): {e}")
+        for retry in range(3):  # 최대 3회까지 재시도
+            try:
+                resp = session.get(img_url, timeout=15)
+                if resp.status_code == 200:
+                    img_bytes = resp.content
+                    # 1차 검증: 파일 크기가 2KB(2048 bytes) 미만이면 깨진 기본 아이콘으로 간주
+                    if len(img_bytes) < 2048:
+                        raise ValueError(f"비정상적으로 작은 이미지 용량 ({len(img_bytes)} bytes)")
+                    image = Image.open(BytesIO(img_bytes))
+                    image = image.convert("RGB")
+                    # 2차 검증: 이미지 전체의 고유 색상이 15가지 미만이면 단색 회색 아이콘으로 간주
+                    colors = image.getcolors(maxcolors=20)
+                    if colors is not None and len(colors) < 15:
+                        raise ValueError("단색/깨진 아이콘 이미지 감지")
+                    image.thumbnail((80, 80))
+                    bio = BytesIO()
+                    image.save(bio, format="PNG")
+                    bio.seek(0)
+                    img = XLImage(bio)
+                    ws.row_dimensions[i].height = 65 
+                    ws.add_image(img, f"D{i}")
+                    time.sleep(0.1)
+                    break  # 성공 시 재시도 종료
+            except Exception as e:
+                if retry == 2:
+                    print(f"[ERROR] 이미지 삽입 최종 실패 (순위 {row[0]}): {e}")
+                else:
+                    time.sleep(1)
 
     # 💾 저장 및 메일 전송
     file_path = os.path.join(BASE_DIR, "Qoo10_Rank.xlsx")
