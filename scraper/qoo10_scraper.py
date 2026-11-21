@@ -284,7 +284,7 @@ try:
         today = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d")
         msg["Subject"] = f"Qoo10 랭킹 자동 보고서 {today}"
         
-        body = MIMEText(f"자동 생성된 Qoo10 보고서입니다.\n일자: {today}\nURL: {QOO10_URL}", "plain")
+        body = MIMEText(f"스크래퍼에 의해 자동 생성된 Qoo10 보고서입니다.\n파이팅구! 많이 사랑해용♡\n일자: {today}\nURL: {QOO10_URL}", "plain")
         msg.attach(body)
 
         with open(file_path, "rb") as f:
